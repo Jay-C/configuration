@@ -635,28 +635,47 @@ TABS.firmware_flasher.initialize = function (callback) {
             }
         }
 
+        const ignoreRegExp = [
+            /^[ ]*$/,
+            /^feature [-]?GPS/i,
+            /^feature [-]?OSD/i,
+            /^feature [-]?AIRMODE/i,
+            /^feature [-]?ANTIGRAVITY/i,
+            /^feature [-]?DISPLAY/i,
+            /^feature [-]?DYNAMIC/i,
+            /^feature [-]?LED_STRIP/i,
+            /^feature [-]?RX_PARALLEL/i,
+            /^feature [-]?SOFTSERIAL/i,
+            /^feature [-]?TELEMETRY/i,
+            /^feature [-]?ESC_SENSOR/i,
+            /^resource PWM/i,
+            /^resource OSD/i,
+            /^resource CAMERA/i,
+            /^resource MOTOR [5-8]/i,
+            /^serial [0-9]/i,
+            /^set osd/i,
+            /^set vcd/i,
+            /^set max7456/i,
+            /^set dashboard/i,
+            /^set displayport/i,
+            /^set ledstrip/i,
+            /^set vtx/i,
+            /^set small_angle/i,
+        ];
+
         function cleanUnifiedConfigFile(input) {
-            let output = [];
-            let inComment = false;
-            for (let i=0; i < input.length; i++) {
-                if (input.charAt(i) == "\n" || input.charAt(i) == "\r") {
-                    inComment = false;
+            let output = '';
+            input.split(/[\n\r]+/).forEach(function(line,index) {
+                if (index > 0 || !line.match(/^# (Beta)|(Rotor)flight/)) {
+                    line = line.replace(/#.*$/, '')
+                               .replace(/[ \t]+$/, '')
+                               .replace(/[ \t]+/, ' ');
+                    if (ignoreRegExp.some( (regexp) => line.match(regexp) ))
+                        return;
                 }
-                if (input.charAt(i) == "#") {
-                    inComment = true;
-                }
-                if (!inComment && input.charCodeAt(i) > 255) {
-                    self.flashingMessage(i18n.getMessage('firmwareFlasherConfigCorrupted'), self.FLASH_MESSAGE_TYPES.INVALID);
-                    GUI.log(i18n.getMessage('firmwareFlasherConfigCorruptedLogMessage'));
-                    return null;
-                }
-                if (input.charCodeAt(i) > 255) {
-                    output.push('_');
-                } else {
-                    output.push(input.charAt(i));
-                }
-            }
-            return output.join('');
+                output += line + '\n';
+            });
+            return output;
         }
 
         const portPickerElement = $('div#port-picker #port');
