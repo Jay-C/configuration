@@ -2,7 +2,7 @@
 
 TABS.firmware_flasher = {
     releases: null,
-    releaseChecker: new ReleaseChecker('firmware', 'https://api.github.com/repos/rotorflight/rotorflight-firmware/releases'),
+    releaseChecker: new ReleaseChecker('firmware', 'https://api.github.com/repos/jay-c/rotorflight-firmware/releases'),
     gitHubApi: new GitHubApi(),
     localFirmwareLoaded: false,
     selectedBoard: undefined,
