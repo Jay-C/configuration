@@ -987,6 +987,33 @@ MspHelper.prototype.process_data = function(dataHandler) {
                 FC.GOVERNOR.gov_rpm_filter                   = data.readU16();
                 break;
 
+            case MSPCodes.MSP_MIXER_INPUTS:
+                FC.MIXER_INPUTS = [];
+                const inputCount = data.byteLength / 6;
+                for (let i = 0; i < inputCount; i++) {
+                    FC.MIXER_INPUTS.push({
+                        rate: data.read16(),
+                        min:  data.read16(),
+                        max:  data.read16(),
+                    });
+                }
+                break;
+
+            case MSPCodes.MSP_MIXER_RULES:
+                FC.MIXER_RULES = [];
+                const ruleCount = data.byteLength / 11;
+                for (let i = 0; i < ruleCount; i++) {
+                    FC.MIXER_RULES.push({
+                        modes:  data.readU32(),
+                        oper:   data.readU8(),
+                        src:    data.readU8(),
+                        dst:    data.readU8(),
+                        offset: data.read16(),
+                        weight: data.read16(),
+                    });
+                }
+                break;
+
             case MSPCodes.MSP_SENSOR_CONFIG:
                 FC.SENSOR_CONFIG.acc_hardware = data.readU8();
                 FC.SENSOR_CONFIG.baro_hardware = data.readU8();
@@ -1301,7 +1328,6 @@ MspHelper.prototype.process_data = function(dataHandler) {
             case MSPCodes.MSP_SET_VTXTABLE_POWERLEVEL:
                 console.log("VTX powerlevel sent");
                 break;
-
             case MSPCodes.MSP_SET_MODE_RANGE:
                 console.log('Mode range saved');
                 break;
@@ -1328,7 +1354,13 @@ MspHelper.prototype.process_data = function(dataHandler) {
                 console.log('Current PID profile reset');
                 break;
             case MSPCodes.MSP_SET_MIXER_CONFIG:
-                console.log('Mixer config saved');
+                console.log('Mixer config changed');
+                break;
+            case MSPCodes.MSP_SET_MIXER_INPUT:
+                console.log('Mixer input changed');
+                break;
+            case MSPCodes.MSP_SET_MIXER_RULE:
+                console.log('Mixer rule changed');
                 break;
             case MSPCodes.MSP_SET_RC_DEADBAND:
                 console.log('Rc controls settings saved');
@@ -1429,6 +1461,7 @@ MspHelper.prototype.process_data = function(dataHandler) {
 
             default:
                 console.log('Unknown code detected: ' + code);
+
         } else {
             console.log('FC reports unsupported message error: ' + code);
 
@@ -2066,8 +2099,8 @@ MspHelper.prototype.dataflashRead = function(address, blockSize, onDataCallback)
     }, true);
 };
 
-MspHelper.prototype.sendMotorOverride = function(motorIndex, onCompleteCallback) {
-
+MspHelper.prototype.sendMotorOverride = function(motorIndex, onCompleteCallback)
+{
     const value = FC.MOTOR_OVERRIDE[motorIndex];
     const buffer = [];
 
@@ -2077,8 +2110,23 @@ MspHelper.prototype.sendMotorOverride = function(motorIndex, onCompleteCallback)
     MSP.send_message(MSPCodes.MSP_SET_MOTOR_OVERRIDE, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.sendServoOverride = function(servoIndex, onCompleteCallback) {
+MspHelper.prototype.sendMotorOverrides = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
+    function send_next() {
+        if (index < FC.MOTOR_OVERRIDE.length)
+            self.sendMotorOverride(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendServoOverride = function(servoIndex, onCompleteCallback)
+{
     const value = FC.SERVO_OVERRIDE[servoIndex];
     const buffer = [];
 
@@ -2088,8 +2136,23 @@ MspHelper.prototype.sendServoOverride = function(servoIndex, onCompleteCallback)
     MSP.send_message(MSPCodes.MSP_SET_SERVO_OVERRIDE, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.sendServoConfig = function(servoIndex, onCompleteCallback) {
+MspHelper.prototype.sendServoOverrides = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
+    function send_next() {
+        if (index < FC.SERVO_OVERRIDE.length)
+            self.sendServoOverride(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendServoConfig = function(servoIndex, onCompleteCallback)
+{
     const CONFIG = FC.SERVO_CONFIG[servoIndex];
     const buffer = [];
 
@@ -2104,265 +2167,287 @@ MspHelper.prototype.sendServoConfig = function(servoIndex, onCompleteCallback) {
     MSP.send_message(MSPCodes.MSP_SET_SERVO_CONFIGURATION, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.sendServoConfigurations = function(onCompleteCallback) {
+MspHelper.prototype.sendServoConfigurations = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
-    let nextFunction = send_next_servo_configuration;
-
-    let servoIndex = 0;
-
-    if (FC.SERVO_CONFIG.length == 0) {
-        onCompleteCallback();
-    } else {
-        nextFunction();
+    function send_next() {
+        if (index < FC.SERVO_CONFIG.length)
+            self.sendServoConfig(index++, send_next);
+        else
+            onCompleteCallback();
     }
 
-    function send_next_servo_configuration() {
-
-        const CONFIG = FC.SERVO_CONFIG[servoIndex];
-        const buffer = [];
-
-        buffer.push8(servoIndex)
-              .push16(CONFIG.mid)
-              .push16(CONFIG.min)
-              .push16(CONFIG.max)
-              .push16(CONFIG.rate)
-              .push16(CONFIG.trim)
-              .push16(CONFIG.speed);
-
-        // prepare for next iteration
-        servoIndex++;
-        if (servoIndex == FC.SERVO_CONFIG.length) {
-            nextFunction = onCompleteCallback;
-        }
-
-        MSP.send_message(MSPCodes.MSP_SET_SERVO_CONFIGURATION, buffer, false, nextFunction);
-    }
+    send_next();
 };
 
-MspHelper.prototype.sendModeRanges = function(onCompleteCallback) {
-    let nextFunction = send_next_mode_range;
+MspHelper.prototype.sendMixerInput = function(inputIndex, onCompleteCallback)
+{
+    const input = FC.MIXER_INPUTS[inputIndex];
+    const buffer = [];
 
-    let modeRangeIndex = 0;
+    buffer.push8(inputIndex)
+          .push16(input.rate)
+          .push16(input.min)
+          .push16(input.max);
 
-    if (FC.MODE_RANGES.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_mode_range();
-    }
-
-    function send_next_mode_range() {
-
-        const modeRange = FC.MODE_RANGES[modeRangeIndex];
-        const buffer = [];
-
-        buffer.push8(modeRangeIndex)
-            .push8(modeRange.id)
-            .push8(modeRange.auxChannelIndex)
-            .push8((modeRange.range.start - 900) / 25)
-            .push8((modeRange.range.end - 900) / 25);
-
-        if (semver.gte(FC.CONFIG.apiVersion, API_VERSION_1_41)) {
-            const modeRangeExtra = FC.MODE_RANGES_EXTRA[modeRangeIndex];
-
-            buffer.push8(modeRangeExtra.modeLogic)
-                .push8(modeRangeExtra.linkedTo);
-        }
-
-        // prepare for next iteration
-        modeRangeIndex++;
-        if (modeRangeIndex == FC.MODE_RANGES.length) {
-            nextFunction = onCompleteCallback;
-        }
-        MSP.send_message(MSPCodes.MSP_SET_MODE_RANGE, buffer, false, nextFunction);
-    }
+    MSP.send_message(MSPCodes.MSP_SET_MIXER_INPUT, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.sendAdjustmentRanges = function(onCompleteCallback) {
-    let nextFunction = send_next_adjustment_range;
+MspHelper.prototype.sendMixerInputs = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
-    let adjustmentRangeIndex = 0;
-
-    if (FC.ADJUSTMENT_RANGES.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_adjustment_range();
+    function send_next() {
+        if (index < FC.MIXER_INPUTS.length)
+            self.sendMixerInput(index++, send_next);
+        else
+            onCompleteCallback();
     }
 
-
-    function send_next_adjustment_range() {
-
-        const adjustmentRange = FC.ADJUSTMENT_RANGES[adjustmentRangeIndex];
-        const buffer = [];
-
-        buffer.push8(adjustmentRangeIndex)
-            .push8(adjustmentRange.enaChannel)
-            .push8((adjustmentRange.enaRange.start - 900) / 25)
-            .push8((adjustmentRange.enaRange.end - 900) / 25)
-            .push8(adjustmentRange.adjFunction)
-            .push8(adjustmentRange.adjChannel)
-            .push8(adjustmentRange.adjStep)
-            .push16(adjustmentRange.adjMin)
-            .push16(adjustmentRange.adjMax);
-
-        // prepare for next iteration
-        adjustmentRangeIndex++;
-        if (adjustmentRangeIndex == FC.ADJUSTMENT_RANGES.length) {
-            nextFunction = onCompleteCallback;
-
-        }
-        MSP.send_message(MSPCodes.MSP_SET_ADJUSTMENT_RANGE, buffer, false, nextFunction);
-    }
+    send_next();
 };
 
-MspHelper.prototype.sendVoltageConfig = function(onCompleteCallback) {
+MspHelper.prototype.sendMixerRule = function(ruleIndex, onCompleteCallback)
+{
+    const rule = FC.MIXER_RULES[ruleIndex];
+    const buffer = [];
 
-    let nextFunction = send_next_voltage_config;
+    buffer.push8(ruleIndex)
+          .push32(rule.modes)
+          .push8(rule.oper)
+          .push8(rule.src)
+          .push8(rule.dst)
+          .push16(rule.offset)
+          .push16(rule.weight);
 
-    let configIndex = 0;
-
-    if (FC.VOLTAGE_METER_CONFIGS.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_voltage_config();
-    }
-
-    function send_next_voltage_config() {
-        const buffer = [];
-
-        buffer.push8(FC.VOLTAGE_METER_CONFIGS[configIndex].id)
-            .push8(FC.VOLTAGE_METER_CONFIGS[configIndex].vbatscale)
-            .push8(FC.VOLTAGE_METER_CONFIGS[configIndex].vbatresdivval)
-            .push8(FC.VOLTAGE_METER_CONFIGS[configIndex].vbatresdivmultiplier);
-
-        // prepare for next iteration
-        configIndex++;
-        if (configIndex == FC.VOLTAGE_METER_CONFIGS.length) {
-            nextFunction = onCompleteCallback;
-        }
-
-        MSP.send_message(MSPCodes.MSP_SET_VOLTAGE_METER_CONFIG, buffer, false, nextFunction);
-    }
-
+    MSP.send_message(MSPCodes.MSP_SET_MIXER_RULE, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.sendCurrentConfig = function(onCompleteCallback) {
+MspHelper.prototype.sendMixerRules = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
-    let nextFunction = send_next_current_config;
-
-    let configIndex = 0;
-
-    if (FC.CURRENT_METER_CONFIGS.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_current_config();
+    function send_next() {
+        if (index < FC.MIXER_RULES.length)
+            self.sendMixerRule(index++, send_next);
+        else
+            onCompleteCallback();
     }
 
-    function send_next_current_config() {
-        const buffer = [];
-
-        buffer.push8(FC.CURRENT_METER_CONFIGS[configIndex].id)
-            .push16(FC.CURRENT_METER_CONFIGS[configIndex].scale)
-            .push16(FC.CURRENT_METER_CONFIGS[configIndex].offset);
-
-        // prepare for next iteration
-        configIndex++;
-        if (configIndex == FC.CURRENT_METER_CONFIGS.length) {
-            nextFunction = onCompleteCallback;
-        }
-
-        MSP.send_message(MSPCodes.MSP_SET_CURRENT_METER_CONFIG, buffer, false, nextFunction);
-    }
-
+    send_next();
 };
 
-MspHelper.prototype.sendLedStripConfig = function(onCompleteCallback) {
+MspHelper.prototype.sendModeRange = function(modeRangeIndex, onCompleteCallback)
+{
+    const modeRange = FC.MODE_RANGES[modeRangeIndex];
+    const buffer = [];
 
-    let nextFunction = send_next_led_strip_config;
+    buffer.push8(modeRangeIndex)
+          .push8(modeRange.id)
+          .push8(modeRange.auxChannelIndex)
+          .push8((modeRange.range.start - 900) / 25)
+          .push8((modeRange.range.end - 900) / 25);
 
-    let ledIndex = 0;
+    if (semver.gte(FC.CONFIG.apiVersion, API_VERSION_1_41)) {
+        const modeRangeExtra = FC.MODE_RANGES_EXTRA[modeRangeIndex];
+        buffer.push8(modeRangeExtra.modeLogic)
+              .push8(modeRangeExtra.linkedTo);
+    }
 
-    if (FC.LED_STRIP.length == 0) {
-        onCompleteCallback();
+    MSP.send_message(MSPCodes.MSP_SET_MODE_RANGE, buffer, false, onCompleteCallback);
+};
+
+MspHelper.prototype.sendModeRanges = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.MODE_RANGES.length)
+            self.sendModeRange(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendAdjustmentRange = function(adjustmentRangeIndex, onCompleteCallback)
+{
+    const adjustmentRange = FC.ADJUSTMENT_RANGES[adjustmentRangeIndex];
+    const buffer = [];
+
+    buffer.push8(adjustmentRangeIndex)
+          .push8(adjustmentRange.enaChannel)
+          .push8((adjustmentRange.enaRange.start - 900) / 25)
+          .push8((adjustmentRange.enaRange.end - 900) / 25)
+          .push8(adjustmentRange.adjFunction)
+          .push8(adjustmentRange.adjChannel)
+          .push8(adjustmentRange.adjStep)
+          .push16(adjustmentRange.adjMin)
+          .push16(adjustmentRange.adjMax);
+
+    MSP.send_message(MSPCodes.MSP_SET_ADJUSTMENT_RANGE, buffer, false, onCompleteCallback);
+};
+
+MspHelper.prototype.sendAdjustmentRanges = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.ADJUSTMENT_RANGES.length)
+            self.sendAdjustmentRange(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendVoltageMeterConfig = function(configIndex, onCompleteCallback)
+{
+    const config = FC.VOLTAGE_METER_CONFIGS[configIndex];
+    const buffer = [];
+
+    buffer.push8(config.id)
+          .push8(config.vbatscale)
+          .push8(config.vbatresdivval)
+          .push8(config.vbatresdivmultiplier);
+
+    MSP.send_message(MSPCodes.MSP_SET_VOLTAGE_METER_CONFIG, buffer, false, onCompleteCallback);
+};
+
+MspHelper.prototype.sendVoltageConfig = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.VOLTAGE_METER_CONFIGS.length)
+            self.sendVoltageMeterConfig(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendCurrentMeterConfig = function(configIndex, onCompleteCallback)
+{
+    const config = FC.CURRENT_METER_CONFIGS[configIndex];
+    const buffer = [];
+
+    buffer.push8(config.id)
+          .push16(config.scale)
+          .push16(config.offset);
+
+    MSP.send_message(MSPCodes.MSP_SET_CURRENT_METER_CONFIG, buffer, false, onCompleteCallback);
+};
+
+MspHelper.prototype.sendCurrentConfig = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.CURRENT_METER_CONFIGS.length)
+            self.sendCurrentMeterConfig(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.sendLedConfig = function(ledIndex, onCompleteCallback)
+{
+    const led = FC.LED_STRIP[ledIndex];
+    const buffer = [];
+
+    buffer.push(ledIndex);
+
+    if (semver.lt(FC.CONFIG.apiVersion, API_VERSION_1_36)) {
+        ledOverlayLetters = ['t', 'o', 'b', 'n', 'i', 'w']; // in LSB bit
+    }
+
+    if (semver.lt(FC.CONFIG.apiVersion, "1.20.0")) {
+        let directionMask = 0;
+        for (let directionLetterIndex = 0; directionLetterIndex < led.directions.length; directionLetterIndex++) {
+            const bitIndex = ledDirectionLetters.indexOf(led.directions[directionLetterIndex]);
+            if (bitIndex >= 0) {
+                directionMask = bit_set(directionMask, bitIndex);
+            }
+        }
+        buffer.push16(directionMask);
+
+        let functionMask = 0;
+        for (let functionLetterIndex = 0; functionLetterIndex < led.functions.length; functionLetterIndex++) {
+            const bitIndex = ledFunctionLetters.indexOf(led.functions[functionLetterIndex]);
+            if (bitIndex >= 0) {
+                functionMask = bit_set(functionMask, bitIndex);
+            }
+        }
+        buffer.push16(functionMask)
+
+            .push8(led.x)
+            .push8(led.y)
+            .push8(led.color);
     } else {
-        send_next_led_strip_config();
+        let mask = 0;
+
+        mask |= (led.y << 0);
+        mask |= (led.x << 4);
+
+        for (let functionLetterIndex = 0; functionLetterIndex < led.functions.length; functionLetterIndex++) {
+            const fnIndex = ledBaseFunctionLetters.indexOf(led.functions[functionLetterIndex]);
+            if (fnIndex >= 0) {
+                mask |= (fnIndex << 8);
+                break;
+            }
+        }
+
+        for (let overlayLetterIndex = 0; overlayLetterIndex < led.functions.length; overlayLetterIndex++) {
+            const bitIndex = ledOverlayLetters.indexOf(led.functions[overlayLetterIndex]);
+            if (bitIndex >= 0) {
+                mask |= bit_set(mask, bitIndex + 12);
+            }
+        }
+
+        mask |= (led.color << 18);
+
+        for (let directionLetterIndex = 0; directionLetterIndex < led.directions.length; directionLetterIndex++) {
+            const bitIndex = ledDirectionLetters.indexOf(led.directions[directionLetterIndex]);
+            if (bitIndex >= 0) {
+                mask |= bit_set(mask, bitIndex + 22);
+            }
+        }
+
+        mask |= (0 << 28); // parameters
+
+        buffer.push32(mask);
     }
 
-    function send_next_led_strip_config() {
+    MSP.send_message(MSPCodes.MSP_SET_LED_STRIP_CONFIG, buffer, false, onCompleteCallback);
+};
 
-        const led = FC.LED_STRIP[ledIndex];
-        const buffer = [];
+MspHelper.prototype.sendLedStripConfig = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
 
-        buffer.push(ledIndex);
-
-        if (semver.lt(FC.CONFIG.apiVersion, API_VERSION_1_36)) {
-            ledOverlayLetters = ['t', 'o', 'b', 'n', 'i', 'w']; // in LSB bit
-        }
-
-        if (semver.lt(FC.CONFIG.apiVersion, "1.20.0")) {
-            let directionMask = 0;
-            for (let directionLetterIndex = 0; directionLetterIndex < led.directions.length; directionLetterIndex++) {
-                const bitIndex = ledDirectionLetters.indexOf(led.directions[directionLetterIndex]);
-                if (bitIndex >= 0) {
-                    directionMask = bit_set(directionMask, bitIndex);
-                }
-            }
-            buffer.push16(directionMask);
-
-            let functionMask = 0;
-            for (let functionLetterIndex = 0; functionLetterIndex < led.functions.length; functionLetterIndex++) {
-                const bitIndex = ledFunctionLetters.indexOf(led.functions[functionLetterIndex]);
-                if (bitIndex >= 0) {
-                    functionMask = bit_set(functionMask, bitIndex);
-                }
-            }
-            buffer.push16(functionMask)
-
-                .push8(led.x)
-                .push8(led.y)
-                .push8(led.color);
-        } else {
-            let mask = 0;
-
-            mask |= (led.y << 0);
-            mask |= (led.x << 4);
-
-            for (let functionLetterIndex = 0; functionLetterIndex < led.functions.length; functionLetterIndex++) {
-                const fnIndex = ledBaseFunctionLetters.indexOf(led.functions[functionLetterIndex]);
-                if (fnIndex >= 0) {
-                    mask |= (fnIndex << 8);
-                    break;
-                }
-            }
-
-            for (let overlayLetterIndex = 0; overlayLetterIndex < led.functions.length; overlayLetterIndex++) {
-                const bitIndex = ledOverlayLetters.indexOf(led.functions[overlayLetterIndex]);
-                if (bitIndex >= 0) {
-                    mask |= bit_set(mask, bitIndex + 12);
-                }
-            }
-
-            mask |= (led.color << 18);
-
-            for (let directionLetterIndex = 0; directionLetterIndex < led.directions.length; directionLetterIndex++) {
-                const bitIndex = ledDirectionLetters.indexOf(led.directions[directionLetterIndex]);
-                if (bitIndex >= 0) {
-                    mask |= bit_set(mask, bitIndex + 22);
-                }
-            }
-
-            mask |= (0 << 28); // parameters
-
-            buffer.push32(mask);
-        }
-
-        // prepare for next iteration
-        ledIndex++;
-        if (ledIndex == FC.LED_STRIP.length) {
-            nextFunction = onCompleteCallback;
-        }
-
-        MSP.send_message(MSPCodes.MSP_SET_LED_STRIP_CONFIG, buffer, false, nextFunction);
+    function send_next() {
+        if (index < FC.LED_STRIP.length)
+            self.sendLedConfig(index++, send_next);
+        else
+            onCompleteCallback();
     }
+
+    send_next();
 };
 
 MspHelper.prototype.sendLedStripColors = function(onCompleteCallback) {
@@ -2380,37 +2465,36 @@ MspHelper.prototype.sendLedStripColors = function(onCompleteCallback) {
     }
 };
 
-MspHelper.prototype.sendLedStripModeColors = function(onCompleteCallback) {
+MspHelper.prototype.sendLedStripModeColor = function(index, onCompleteCallback)
+{
+    const modeColor = FC.LED_MODE_COLORS[index];
+    const buffer = [];
 
-    let nextFunction = send_next_led_strip_mode_color;
-    let index = 0;
+    buffer.push8(modeColor.mode)
+          .push8(modeColor.direction)
+          .push8(modeColor.color);
 
-    if (FC.LED_MODE_COLORS.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_led_strip_mode_color();
-    }
+    MSP.send_message(MSPCodes.MSP_SET_LED_STRIP_MODECOLOR, buffer, false, onCompleteCallback);
 
-    function send_next_led_strip_mode_color() {
-        const buffer = [];
-
-        const modeColor = FC.LED_MODE_COLORS[index];
-
-        buffer.push8(modeColor.mode)
-            .push8(modeColor.direction)
-            .push8(modeColor.color);
-
-        // prepare for next iteration
-        index++;
-        if (index == FC.LED_MODE_COLORS.length) {
-            nextFunction = onCompleteCallback;
-        }
-
-        MSP.send_message(MSPCodes.MSP_SET_LED_STRIP_MODECOLOR, buffer, false, nextFunction);
-    }
 };
 
-MspHelper.prototype.serialPortFunctionMaskToFunctions = function(functionMask) {
+MspHelper.prototype.sendLedStripModeColors = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.LED_MODE_COLORS.length)
+            self.sendLedStripModeColor(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.serialPortFunctionMaskToFunctions = function(functionMask)
+{
     const self = this;
     const functions = [];
 
@@ -2424,7 +2508,8 @@ MspHelper.prototype.serialPortFunctionMaskToFunctions = function(functionMask) {
     return functions;
 };
 
-MspHelper.prototype.serialPortFunctionsToMask = function(functions) {
+MspHelper.prototype.serialPortFunctionsToMask = function(functions)
+{
     const self = this;
     let mask = 0;
 
@@ -2438,51 +2523,46 @@ MspHelper.prototype.serialPortFunctionsToMask = function(functions) {
     return mask;
 };
 
-MspHelper.prototype.sendRxFailConfig = function(onCompleteCallback) {
-    let nextFunction = send_next_rxfail_config;
+MspHelper.prototype.sendRxFailChannel = function(index, onCompleteCallback)
+{
+    const rxFail = FC.RXFAIL_CONFIG[index];
+    const buffer = [];
 
-    let rxFailIndex = 0;
+    buffer.push8(index)
+          .push8(rxFail.mode)
+          .push16(rxFail.value);
 
-    if (FC.RXFAIL_CONFIG.length == 0) {
-        onCompleteCallback();
-    } else {
-        send_next_rxfail_config();
-    }
-
-    function send_next_rxfail_config() {
-
-        const rxFail = FC.RXFAIL_CONFIG[rxFailIndex];
-
-        const buffer = [];
-        buffer.push8(rxFailIndex)
-            .push8(rxFail.mode)
-            .push16(rxFail.value);
-
-
-        // prepare for next iteration
-        rxFailIndex++;
-        if (rxFailIndex == FC.RXFAIL_CONFIG.length) {
-            nextFunction = onCompleteCallback;
-
-        }
-        MSP.send_message(MSPCodes.MSP_SET_RXFAIL_CONFIG, buffer, false, nextFunction);
-    }
+    MSP.send_message(MSPCodes.MSP_SET_RXFAIL_CONFIG, buffer, false, onCompleteCallback);
 };
 
-MspHelper.prototype.setArmingEnabled = function(doEnable, onCompleteCallback) {
-    if (semver.gte(FC.CONFIG.apiVersion, API_VERSION_1_37) &&
-        (FC.CONFIG.armingDisabled === doEnable)) {
+MspHelper.prototype.sendRxFailConfig = function(onCompleteCallback)
+{
+    const self = this;
+    var index = 0;
+
+    function send_next() {
+        if (index < FC.RXFAIL_CONFIG.length)
+            self.sendRxFailChannel(index++, send_next);
+        else
+            onCompleteCallback();
+    }
+
+    send_next();
+};
+
+MspHelper.prototype.setArmingEnabled = function(doEnable, onCompleteCallback)
+{
+    if (FC.CONFIG.armingDisabled === doEnable) {
 
         FC.CONFIG.armingDisabled = !doEnable;
 
         MSP.send_message(MSPCodes.MSP_ARMING_DISABLE, mspHelper.crunch(MSPCodes.MSP_ARMING_DISABLE), false, function () {
             GUI.log(i18n.getMessage(doEnable ? 'armingEnabled' : 'armingDisabled'));
-            if (onCompleteCallback)
-                onCompleteCallback();
+            if (onCompleteCallback) onCompleteCallback();
         });
-    } else {
-        if (onCompleteCallback)
-            onCompleteCallback();
+    }
+    else {
+        if (onCompleteCallback) onCompleteCallback();
     }
 };
 
