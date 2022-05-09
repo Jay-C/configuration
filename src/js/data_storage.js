@@ -43,5 +43,5 @@ const CONFIGURATOR = {
     gitChangesetId: 'unknown',
     version: '0.0.1',
     latestVersion: '0.0.1',
-    latestVersionReleaseUrl: 'https://github.com/rotorflight/rotorflight-configurator/releases',
+    latestVersionReleaseUrl: 'https://github.com/jay-c/configuration/releases',
 };

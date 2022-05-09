@@ -40,7 +40,7 @@ function appReady() {
 }
 
 function setupAnalytics(result) {
-    let userId = result.userId;
+    let userId = 'RotorflightFC'; //result.userId;
 
     if (!userId) {
         const uid = new ShortUniqueId();
@@ -50,7 +50,7 @@ function setupAnalytics(result) {
 
     const debugMode = typeof process === "object" && process.versions['nw-flavor'] === 'sdk';
 
-    window.analytics = new Analytics('UA-227226350-1', userId, 'Rotorflight Configurator',
+    window.analytics = new Analytics('UA-213385601-1', userId, 'Rotorflight Configurator',
         CONFIGURATOR.version, CONFIGURATOR.gitChangesetId, debugMode);
 
     function logException(exception) {
@@ -432,7 +432,7 @@ function setDarkTheme(enabled) {
 }
 
 function checkForConfiguratorUpdates() {
-    const releaseChecker = new ReleaseChecker('configurator', 'https://api.github.com/repos/rotorflight/rotorflight-configurator/releases');
+    const releaseChecker = new ReleaseChecker('configurator', 'https://api.github.com/repos/jay-c/configuration/releases');
 
     releaseChecker.loadReleaseData(notifyOutdatedVersion);
 }
